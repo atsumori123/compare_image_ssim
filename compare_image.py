@@ -81,6 +81,10 @@ def highlight_diff(outimg, diff, trim_info, header_offset, threshold=DIFF_THRESH
 	# 差分領域の輪郭を取得
 	contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+	# 差分面積を計算
+	# thは差分がある部分が白(255)の二値画像
+	area = int(np.count_nonzero(th))
+
 	# オリジナル画像のコピー
 	output = outimg.copy()
 	has_diff = False
@@ -96,7 +100,7 @@ def highlight_diff(outimg, diff, trim_info, header_offset, threshold=DIFF_THRESH
 		cv2.rectangle(output, (orig_x, orig_y), (orig_x + w, orig_y + h), (0, 0, 255), 3)
 		has_diff = True
 
-	return output, has_diff
+	return output, has_diff, area
 
 # ==========================
 # ヒートマップの作成
@@ -187,6 +191,19 @@ def main(src_dir, dst_dir, out_dir="output"):
 		img2 = img2[:h, :w]
 
 		# SSIM 比較
+		# scoreの解釈イメージ
+		#	------------------------------------------------------------------------
+		#	 SSIM			差分率		解釈
+		#	------------------------------------------------------------------------
+		#	0.98～1.00		0～1%		ほぼ同じ。フォント差異や微細なノイズ程度
+		#	0.90〜0.98		1～5%		少し違う。文章の一部変更、図の一部変更
+		#	0.70〜0.90		5〜20%		明確に違う。図の大幅変更、段落追加
+		#	0.70 未満		20%以上		かなり違う。別のページレベルの差異
+		#
+		# ※SSIMの値はあくまで参考値。SSIMで差分あり/なしを判断するのは危険。以下理由。
+		#   ・局所的な差異を見逃す
+		#   ・フォント差異でSSIMが下がる
+		#   ・ページ全体の構造に依存する
 		score, diff = compare_images(img1, img2)
 
 		# 差分の強度を数値化
@@ -201,14 +218,14 @@ def main(src_dir, dst_dir, out_dir="output"):
 			outimg = generate_heatmap(outimg, diff, trim2, header_offset2)
 
 		# 差分を元画像に描画
-		highlighted, has_diff = highlight_diff(outimg, diff, trim2, header_offset2)
+		highlighted, has_diff, area = highlight_diff(outimg, diff, trim2, header_offset2)
 
 		if has_diff:
 			out_path = os.path.join(out_dir, f"diff_{filename}")
 			cv2.imwrite(out_path, highlighted)
-			print(f"[DIFF] {filename}  SSIM={score:.4f}  diff={diff_ratio*100:.2f}%  → {out_path}")
+			print(f"[DIFF] {filename}  SSIM={score:.4f}  diff={diff_ratio*100:.2f}%  差分面積={area}px  → {out_path}")
 		else:
-			print(f"[ OK ] {filename}  SSIM={score:.4f}  diff={diff_ratio*100:.2f}%")
+			print(f"[ OK ] {filename}  SSIM={score:.4f}  diff={diff_ratio*100:.2f}%  差分面積={area}px")
 
 
 if __name__ == "__main__":
